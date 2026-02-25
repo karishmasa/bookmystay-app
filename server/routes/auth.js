@@ -3,10 +3,30 @@ const router = express.Router();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
+// Models Import
 const User = require("../models/User");
 const Profile = require("../models/profile");
 
-// 1. REGISTER ROUTE (Ye missing tha)
+// --- MIDDLEWARE: Token Verify karne ke liye ---
+const auth = (req, res, next) => {
+    // Header se token nikalna
+    const authHeader = req.header("Authorization");
+    const token = authHeader && authHeader.split(" ")[1];
+
+    if (!token) {
+        return res.status(401).json({ message: "No token, authorization denied" });
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        req.user = decoded; // Token se user id nikal kar request mein daal di
+        next(); // Agle function par jao (Sabse zaroori!)
+    } catch (error) {
+        res.status(401).json({ message: "Token is not valid" });
+    }
+};
+
+// --- 1. REGISTER ROUTE ---
 router.post("/register", async (req, res) => {
     const { name, email, password, isHost } = req.body;
     try {
@@ -19,7 +39,7 @@ router.post("/register", async (req, res) => {
         user = new User({ name, email, password: hashedPassword, isHost });
         await user.save();
 
-        // Auto-create profile
+        // Auto-create profile for new user
         const profile = new Profile({
             user: user._id,
             bio: "", phone: "", gender: "", dob: null, avatar: "", location: "",
@@ -34,7 +54,7 @@ router.post("/register", async (req, res) => {
     }
 });
 
-// 2. LOGIN ROUTE (Sirf ek baar)
+// --- 2. LOGIN ROUTE ---
 router.post("/login", async (req, res) => {
     const { email, password } = req.body;
     try {
@@ -49,6 +69,24 @@ router.post("/login", async (req, res) => {
         res.json({ token, user: { id: user._id, name: user.name, isHost: user.isHost } });
     } catch (error) {
         res.status(500).json({ message: "Login error", error: error.message });
+    }
+});
+
+// --- 3. GET PROFILE ROUTE (Authenticated) ---
+// Is route ke liye humne 'auth' middleware use kiya hai
+router.get("/profile", auth, async (req, res) => {
+    try {
+        // req.user.id humein token se mil raha hai jo middleware ne set kiya
+        const profile = await Profile.findOne({ user: req.user.id }).populate("user", ["name", "email"]);
+        
+        if (!profile) {
+            return res.status(404).json({ message: "Profile not found" });
+        }
+
+        res.json(profile); // Response send kiya!
+    } catch (error) {
+        console.error(error.message);
+        res.status(500).send("Server Error");
     }
 });
 
